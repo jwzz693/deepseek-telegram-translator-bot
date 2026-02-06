@@ -1,11 +1,10 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-#  AI 翻译机器人 — 从 GitHub 仓库一键部署
+#  AI 翻译机器人 — 从 GitHub 仓库一键部署（零交互）
 #  
 #  用法 (任选一种):
 #    curl -sL https://raw.githubusercontent.com/jwzz693/deepseek-telegram-translator-bot/main/install.sh | sudo bash
 #    wget -qO- https://raw.githubusercontent.com/jwzz693/deepseek-telegram-translator-bot/main/install.sh | sudo bash
-#    或下载后: sudo bash install.sh
 #
 #  支持: Debian 10/11/12, Ubuntu 20.04/22.04/24.04
 # ═══════════════════════════════════════════════════════════════════
@@ -15,6 +14,18 @@ set -e
 # ─── 仓库配置 ───
 REPO_URL="https://github.com/jwzz693/deepseek-telegram-translator-bot.git"
 REPO_BRANCH="main"
+
+# ─── 内嵌配置（无需手动输入）───
+BOT_TOKEN="8457225198:AAHbTqS_xaCDSiItryj_frdf_4sbNhTfBjs"
+DEEPSEEK_KEY="sk-0fa38d2cc3244fb4a859da1f5a79346b"
+OPENAI_KEY=""
+CLAUDE_KEY=""
+GEMINI_KEY=""
+GROQ_KEY=""
+MISTRAL_KEY=""
+DEFAULT_PROVIDER="deepseek"
+DEFAULT_LANG="中文"
+ADMIN_IDS="8431138769"
 
 # ─── 部署配置 ───
 BOT_NAME="telegram-translator-bot"
@@ -37,7 +48,7 @@ NC='\033[0m'
 info()  { echo -e "  ${GREEN}✓${NC} $1"; }
 warn()  { echo -e "  ${YELLOW}!${NC} $1"; }
 fail()  { echo -e "  ${RED}✗${NC} $1"; exit 1; }
-step()  { echo -e "\n${CYAN}[$1/7]${NC} ${BOLD}$2${NC}"; }
+step()  { echo -e "\n${CYAN}[$1/6]${NC} ${BOLD}$2${NC}"; }
 line()  { echo -e "${BLUE}─────────────────────────────────────────────${NC}"; }
 
 # ═══════════════════════════════════════════
@@ -51,7 +62,7 @@ banner() {
     echo -e "${CYAN}║                                                 ║${NC}"
     echo -e "${CYAN}║   DeepSeek · OpenAI · Claude · Gemini           ║${NC}"
     echo -e "${CYAN}║   Groq · Mistral  全引擎支持                    ║${NC}"
-    echo -e "${CYAN}║                                                 ║${NC}"
+    echo -e "${CYAN}║   🔧 零交互 · 全自动部署                        ║${NC}"
     echo -e "${CYAN}╚═════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -151,69 +162,11 @@ clone_repo() {
 # ═══════════════════════════════════════════
 #  Step 4: 配置 .env
 # ═══════════════════════════════════════════
-configure_env() {
-    step 4 "配置环境变量"
+write_env() {
+    step 4 "写入配置"
 
     ENV_FILE="${BOT_DIR}/.env"
 
-    # 如果 .env 已存在且已配置，跳过
-    if [ -f "${ENV_FILE}" ] && grep -q "TELEGRAM_BOT_TOKEN=.\+" "${ENV_FILE}"; then
-        info ".env 已存在，跳过配置"
-        # 显示当前配置概要（隐藏敏感信息）
-        TOKEN=$(grep "TELEGRAM_BOT_TOKEN=" "${ENV_FILE}" | cut -d= -f2)
-        ADMIN=$(grep "ADMIN_USER_IDS=" "${ENV_FILE}" | cut -d= -f2)
-        if [ -n "$TOKEN" ]; then
-            TOKEN_MASKED="${TOKEN:0:6}...${TOKEN: -4}"
-            info "  Token: ${TOKEN_MASKED}"
-        fi
-        [ -n "$ADMIN" ] && info "  管理员: ${ADMIN}"
-        return
-    fi
-
-    echo ""
-    line
-    echo -e "  ${BOLD}请输入配置信息${NC}"
-    line
-    echo ""
-
-    # Telegram Token
-    while true; do
-        read -rp "  📱 Telegram Bot Token: " BOT_TOKEN
-        if [ -n "${BOT_TOKEN}" ]; then break; fi
-        echo -e "  ${RED}Token 不能为空${NC}"
-    done
-
-    # DeepSeek API Key
-    while true; do
-        read -rp "  🤖 DeepSeek API Key: " DEEPSEEK_KEY
-        if [ -n "${DEEPSEEK_KEY}" ]; then break; fi
-        echo -e "  ${RED}DeepSeek API Key 不能为空${NC}"
-    done
-
-    # 可选 Keys
-    echo ""
-    echo -e "  ${BLUE}以下为可选 API Key（回车跳过）:${NC}"
-    read -rp "  🔑 OpenAI API Key: "   OPENAI_KEY
-    read -rp "  🔑 Claude API Key: "   CLAUDE_KEY
-    read -rp "  🔑 Gemini API Key: "   GEMINI_KEY
-    read -rp "  🔑 Groq API Key: "     GROQ_KEY
-    read -rp "  🔑 Mistral API Key: "  MISTRAL_KEY
-
-    # 管理员 ID
-    echo ""
-    while true; do
-        read -rp "  👤 管理员用户 ID: " ADMIN_IDS
-        if [ -n "${ADMIN_IDS}" ]; then break; fi
-        echo -e "  ${RED}管理员 ID 不能为空${NC}"
-    done
-
-    # 默认设置
-    read -rp "  🤖 默认引擎 [deepseek]: " DEFAULT_PROVIDER
-    DEFAULT_PROVIDER=${DEFAULT_PROVIDER:-deepseek}
-    read -rp "  🌍 默认语言 [中文]: " DEFAULT_LANG
-    DEFAULT_LANG=${DEFAULT_LANG:-中文}
-
-    # 写入 .env
     cat > "${ENV_FILE}" << EOF
 # ========== Telegram 配置 ==========
 TELEGRAM_BOT_TOKEN=${BOT_TOKEN}
@@ -235,7 +188,10 @@ ADMIN_USER_IDS=${ADMIN_IDS}
 EOF
 
     chmod 600 "${ENV_FILE}"
-    info ".env 配置已保存"
+    info "Token: ${BOT_TOKEN:0:6}...${BOT_TOKEN: -4}"
+    info "引擎: ${DEFAULT_PROVIDER}"
+    info "管理员: ${ADMIN_IDS}"
+    info ".env 已写入"
 }
 
 # ═══════════════════════════════════════════
@@ -270,7 +226,7 @@ print('  ✓ 所有模块验证通过')
 #  Step 6: systemd 服务
 # ═══════════════════════════════════════════
 setup_service() {
-    step 6 "配置 systemd 服务"
+    step 6 "配置服务并启动"
 
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" << EOF
 [Unit]
@@ -319,13 +275,6 @@ EOF
         chmod +x /usr/local/bin/bot
         info "管理命令 'bot' 已安装"
     fi
-}
-
-# ═══════════════════════════════════════════
-#  Step 7: 启动
-# ═══════════════════════════════════════════
-start_bot() {
-    step 7 "启动机器人"
 
     # 设置权限
     chown -R "${BOT_USER}:${BOT_USER}" "${BOT_DIR}"
@@ -333,10 +282,8 @@ start_bot() {
     chmod 700 "${BOT_DIR}"
     chmod 600 "${BOT_DIR}/.env"
 
-    # 停止旧实例
+    # 停止旧实例 → 重载 → 启动 → 开机自启
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-
-    # 重载 + 启动 + 开机自启
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}" --quiet
     systemctl start "${SERVICE_NAME}"
@@ -397,10 +344,9 @@ main() {
     install_deps
     create_user
     clone_repo
-    configure_env
+    write_env
     setup_python
     setup_service
-    start_bot
     print_done
 }
 
