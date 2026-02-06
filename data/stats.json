@@ -1,0 +1,24 @@
+{
+  "7124166763": {
+    "total": 24,
+    "success": 24,
+    "fail": 0,
+    "chars": 808,
+    "providers": {
+      "deepseek": 24
+    },
+    "first_use": 1770332550.1251638,
+    "last_use": 1770334400.3125165
+  },
+  "-1003487937867": {
+    "total": 4,
+    "success": 4,
+    "fail": 0,
+    "chars": 8,
+    "providers": {
+      "deepseek": 4
+    },
+    "first_use": 1770334854.2605748,
+    "last_use": 1770334888.0958853
+  }
+}
