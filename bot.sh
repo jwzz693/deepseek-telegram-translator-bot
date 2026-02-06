@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
-#  AI 翻译机器人 — 快捷管理脚本
+#  AI 翻译机器人 v2.1 — 快捷管理脚本
 #  用法: bot <命令>
 #  安装后可用: bot status / bot log / bot restart 等
 # ═══════════════════════════════════════════════════════════════
@@ -8,14 +8,34 @@
 SERVICE="telegram-translator-bot"
 BOT_DIR="/opt/${SERVICE}"
 VENV="${BOT_DIR}/venv"
+REPO_URL="https://github.com/jwzz693/deepseek-telegram-translator-bot.git"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 case "$1" in
+
+    # ─── 版本 ───
+    version|ver|-v|--version)
+        echo -e "${CYAN}═══ AI 翻译机器人 ═══${NC}"
+        if [ -f "${BOT_DIR}/src/config.py" ]; then
+            VER=$(grep -oP 'VERSION\s*=\s*"\K[^"]+' "${BOT_DIR}/src/config.py" 2>/dev/null || echo "未知")
+            echo -e "  版本: ${GREEN}v${VER}${NC}"
+        fi
+        PY_VER=$("${VENV}/bin/python" --version 2>&1 || echo "未安装")
+        echo -e "  Python: ${GREEN}${PY_VER}${NC}"
+        if systemctl is-active --quiet "${SERVICE}"; then
+            echo -e "  状态: ${GREEN}运行中${NC}"
+            UPTIME=$(systemctl show -p ActiveEnterTimestamp "${SERVICE}" --value 2>/dev/null)
+            [ -n "$UPTIME" ] && echo -e "  启动: ${CYAN}${UPTIME}${NC}"
+        else
+            echo -e "  状态: ${RED}已停止${NC}"
+        fi
+        ;;
 
     # ─── 状态 ───
     status)
@@ -84,22 +104,30 @@ case "$1" in
     # ─── 更新代码 ───
     update)
         echo -e "${CYAN}═══ 更新代码 ═══${NC}"
-        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
         # 如果有 git
         if [ -d "${BOT_DIR}/.git" ]; then
             cd "${BOT_DIR}"
-            git pull
+            echo -e "${YELLOW}从 GitHub 拉取最新代码...${NC}"
+            git stash --include-untracked 2>/dev/null || true
+            git pull origin main --force
+            git stash pop 2>/dev/null || true
+            echo -e "${GREEN}✓ 代码已更新${NC}"
         else
-            echo -e "${YELLOW}手动更新: 复制新文件到 ${BOT_DIR}/${NC}"
-            echo -e "提示: 将新代码放在当前目录，然后运行:"
-            echo -e "  cp -r src/* ${BOT_DIR}/src/"
-            echo -e "  cp requirements.txt ${BOT_DIR}/"
+            echo -e "${YELLOW}非 git 仓库，尝试重新克隆...${NC}"
+            # 备份 .env 和 data
+            [ -f "${BOT_DIR}/.env" ] && cp "${BOT_DIR}/.env" /tmp/.env.bak
+            [ -d "${BOT_DIR}/data" ] && cp -r "${BOT_DIR}/data" /tmp/data.bak
+            rm -rf "${BOT_DIR}"
+            git clone --depth 1 "${REPO_URL}" "${BOT_DIR}"
+            [ -f /tmp/.env.bak ] && mv /tmp/.env.bak "${BOT_DIR}/.env"
+            [ -d /tmp/data.bak ] && rm -rf "${BOT_DIR}/data" && mv /tmp/data.bak "${BOT_DIR}/data"
+            echo -e "${GREEN}✓ 代码已重新克隆${NC}"
         fi
 
         # 更新依赖
         "${VENV}/bin/pip" install -r "${BOT_DIR}/requirements.txt" -q
-        info "依赖已更新"
+        echo -e "${GREEN}✓ 依赖已更新${NC}"
 
         # 重启
         systemctl restart "${SERVICE}"
@@ -235,9 +263,10 @@ case "$1" in
     # ─── 帮助 ───
     *)
         echo -e "${CYAN}╔═══════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║   🌐 AI 翻译机器人 — 管理命令             ║${NC}"
+        echo -e "${CYAN}║   🌐 AI 翻译机器人 v2.1 — 管理命令        ║${NC}"
         echo -e "${CYAN}╚═══════════════════════════════════════════╝${NC}"
         echo ""
+        echo -e "  ${GREEN}bot version${NC}      — 查看版本信息"
         echo -e "  ${GREEN}bot status${NC}       — 查看运行状态"
         echo -e "  ${GREEN}bot start${NC}        — 启动机器人"
         echo -e "  ${GREEN}bot stop${NC}         — 停止机器人"
@@ -245,7 +274,7 @@ case "$1" in
         echo -e "  ${GREEN}bot log${NC}          — 实时日志"
         echo -e "  ${GREEN}bot log-all${NC}      — 全部日志"
         echo -e "  ${GREEN}bot config${NC}       — 编辑配置"
-        echo -e "  ${GREEN}bot update${NC}       — 更新代码+重启"
+        echo -e "  ${GREEN}bot update${NC}       — 从仓库更新+重启"
         echo -e "  ${GREEN}bot deps${NC}         — 更新依赖"
         echo -e "  ${GREEN}bot health${NC}       — 健康检查"
         echo -e "  ${GREEN}bot backup${NC}       — 备份数据"

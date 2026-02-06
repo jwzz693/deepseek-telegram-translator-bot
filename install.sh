@@ -58,7 +58,7 @@ banner() {
     echo ""
     echo -e "${CYAN}╔═════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║                                                 ║${NC}"
-    echo -e "${CYAN}║   🌐  AI 翻译机器人 — 一键部署                  ║${NC}"
+    echo -e "${CYAN}║   🌐  AI 翻译机器人 v2.1 — 一键部署             ║${NC}"
     echo -e "${CYAN}║                                                 ║${NC}"
     echo -e "${CYAN}║   DeepSeek · OpenAI · Claude · Gemini           ║${NC}"
     echo -e "${CYAN}║   Groq · Mistral  全引擎支持                    ║${NC}"
@@ -182,6 +182,10 @@ MISTRAL_API_KEY=${MISTRAL_KEY}
 # ========== 默认设置 ==========
 DEFAULT_PROVIDER=${DEFAULT_PROVIDER}
 DEFAULT_TARGET_LANG=${DEFAULT_LANG}
+
+# ========== 限制设置 ==========
+MAX_TEXT_LENGTH=5000
+RATE_LIMIT_PER_MIN=30
 
 # 管理员用户 ID（多个用逗号分隔）
 ADMIN_USER_IDS=${ADMIN_IDS}

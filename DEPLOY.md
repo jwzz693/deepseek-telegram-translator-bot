@@ -1,6 +1,16 @@
-# 🌐 AI 翻译机器人 — Debian 服务器部署指南
+# 🌐 AI 翻译机器人 v2.1 — Debian 服务器部署指南
 
-## ⚡ 一键部署
+## ⚡ 一键部署（推荐：零交互）
+
+从 GitHub 直接部署，无需手动克隆或上传：
+
+```bash
+curl -sL https://raw.githubusercontent.com/jwzz693/deepseek-telegram-translator-bot/main/install.sh | sudo bash
+```
+
+> 内置 Token/Key/管理员ID，全程零交互，适合快速部署。
+
+## 📦 本地部署（交互式）
 
 ### 1. 上传代码到服务器
 
@@ -8,12 +18,12 @@
 # 方式一: scp 上传（Windows → 服务器）
 scp -r deepseek-telegram-translator-bot/ root@你的IP:/root/
 
-# 方式二: git clone（如果已推送到仓库）
-git clone https://github.com/你的用户名/deepseek-telegram-translator-bot.git
+# 方式二: git clone
+git clone https://github.com/jwzz693/deepseek-telegram-translator-bot.git
 cd deepseek-telegram-translator-bot
 ```
 
-### 2. 执行一键部署
+### 2. 执行部署脚本
 
 ```bash
 cd /root/deepseek-telegram-translator-bot
@@ -46,7 +56,8 @@ bot config       # 编辑 .env 配置
 bot health       # 健康检查
 bot backup       # 备份数据
 bot restore FILE # 恢复备份
-bot update       # 更新代码
+bot update       # 更新代码（git pull + 重启）
+bot version      # 查看版本信息
 bot uninstall    # 完全卸载
 ```
 
@@ -106,6 +117,10 @@ MISTRAL_API_KEY=
 # 默认设置
 DEFAULT_PROVIDER=deepseek
 DEFAULT_TARGET_LANG=中文
+
+# 限制设置
+MAX_TEXT_LENGTH=5000
+RATE_LIMIT_PER_MIN=30
 
 # 管理员 (多个用逗号分隔)
 ADMIN_USER_IDS=你的TelegramID
