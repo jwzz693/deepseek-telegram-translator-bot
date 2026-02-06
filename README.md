@@ -81,6 +81,15 @@ cd deepseek-telegram-translator-bot
 sudo bash deploy.sh
 ```
 
+### 🔄 一键升级（已部署用户）
+
+```bash
+curl -sL https://raw.githubusercontent.com/jwzz693/deepseek-telegram-translator-bot/main/upgrade.sh | sudo bash
+```
+
+> 自动备份配置和数据 → 拉取最新代码 → 更新依赖 → 补全新 .env 字段 → 重启服务。
+> 也可以使用 `bot upgrade` 命令。
+
 ## ⚙️ 配置说明
 
 `.env` 文件：
@@ -111,7 +120,8 @@ deepseek-telegram-translator-bot/
 ├── requirements.txt
 ├── deploy.sh             # 本地服务器部署脚本
 ├── install.sh            # GitHub 一键部署脚本
-├── bot.sh                # 服务管理脚本（14 命令）
+├── upgrade.sh            # 一键远程升级脚本
+├── bot.sh                # 服务管理脚本（15 命令）
 ├── data/
 │   ├── settings.json     # 聊天设置（自动备份）
 │   └── stats.json        # 翻译统计

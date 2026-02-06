@@ -140,6 +140,28 @@ case "$1" in
         fi
         ;;
 
+    # ─── 远程升级 ───
+    upgrade)
+        echo -e "${CYAN}═══ 一键升级 ═══${NC}"
+        echo -e "${YELLOW}从 GitHub 拉取最新版本并升级...${NC}"
+
+        # 下载并执行升级脚本
+        UPGRADE_URL="https://raw.githubusercontent.com/jwzz693/deepseek-telegram-translator-bot/main/upgrade.sh"
+        if command -v curl &>/dev/null; then
+            curl -sL "${UPGRADE_URL}" | sudo bash
+        elif command -v wget &>/dev/null; then
+            wget -qO- "${UPGRADE_URL}" | sudo bash
+        else
+            # 本地升级脚本
+            if [ -f "${BOT_DIR}/upgrade.sh" ]; then
+                sudo bash "${BOT_DIR}/upgrade.sh"
+            else
+                echo -e "${RED}❌ 需要 curl 或 wget${NC}"
+                exit 1
+            fi
+        fi
+        ;;
+
     # ─── 更新依赖 ───
     deps)
         echo -e "${CYAN}═══ 更新 Python 依赖 ═══${NC}"
@@ -275,6 +297,7 @@ case "$1" in
         echo -e "  ${GREEN}bot log-all${NC}      — 全部日志"
         echo -e "  ${GREEN}bot config${NC}       — 编辑配置"
         echo -e "  ${GREEN}bot update${NC}       — 从仓库更新+重启"
+        echo -e "  ${GREEN}bot upgrade${NC}      — 一键远程升级"
         echo -e "  ${GREEN}bot deps${NC}         — 更新依赖"
         echo -e "  ${GREEN}bot health${NC}       — 健康检查"
         echo -e "  ${GREEN}bot backup${NC}       — 备份数据"

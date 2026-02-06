@@ -10,7 +10,29 @@ curl -sL https://raw.githubusercontent.com/jwzz693/deepseek-telegram-translator-
 
 > 内置 Token/Key/管理员ID，全程零交互，适合快速部署。
 
-## 📦 本地部署（交互式）
+## � 已部署用户升级
+
+如果已经部署过机器人，使用以下命令一键升级到最新版本：
+
+```bash
+curl -sL https://raw.githubusercontent.com/jwzz693/deepseek-telegram-translator-bot/main/upgrade.sh | sudo bash
+```
+
+或使用管理命令：
+```bash
+bot upgrade
+```
+
+升级脚本会自动：
+- ✅ 备份 `.env` 配置和 `data/` 数据
+- ✅ 停止服务 → 拉取最新代码 → 更新依赖
+- ✅ 自动补全新版 `.env` 字段
+- ✅ 验证模块导入 → 重启服务
+- ✅ 显示版本对比和升级结果
+
+---
+
+## �📦 本地部署（交互式）
 
 ### 1. 上传代码到服务器
 
