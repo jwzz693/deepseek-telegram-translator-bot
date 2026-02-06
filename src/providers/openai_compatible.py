@@ -1,7 +1,8 @@
 """OpenAI 兼容提供商（DeepSeek / OpenAI / Groq / Mistral）"""
 
+import httpx
 from openai import AsyncOpenAI
-from .base import BaseProvider
+from .base import BaseProvider, DEFAULT_API_TIMEOUT, DEFAULT_MAX_TOKENS
 
 PROVIDER_CONFIGS = {
     "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
@@ -19,7 +20,12 @@ class OpenAICompatibleProvider(BaseProvider):
         cfg = PROVIDER_CONFIGS[provider_name]
         self.name = provider_name
         self.model = model or cfg["model"]
-        self.client = AsyncOpenAI(api_key=api_key, base_url=cfg["base_url"])
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=cfg["base_url"],
+            timeout=httpx.Timeout(DEFAULT_API_TIMEOUT, connect=10.0),
+            max_retries=0,  # 重试由 translator.py 统一管理
+        )
 
     async def translate(self, text: str, target_lang: str, source_lang: str = "auto") -> dict:
         try:
@@ -30,7 +36,7 @@ class OpenAICompatibleProvider(BaseProvider):
                     {"role": "user", "content": self._build_user_prompt(text)},
                 ],
                 temperature=0.1,
-                max_tokens=4096,
+                max_tokens=DEFAULT_MAX_TOKENS,
                 top_p=0.95,
             )
             return self.parse_response(response.choices[0].message.content.strip())

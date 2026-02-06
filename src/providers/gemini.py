@@ -2,7 +2,7 @@
 
 from google import genai
 from google.genai import types
-from .base import BaseProvider
+from .base import BaseProvider, DEFAULT_MAX_TOKENS
 
 
 class GeminiProvider(BaseProvider):
@@ -10,7 +10,10 @@ class GeminiProvider(BaseProvider):
 
     def __init__(self, api_key: str, model: str | None = None):
         self.model = model or "gemini-2.0-flash"
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=30_000),  # 毫秒
+        )
 
     async def translate(self, text: str, target_lang: str, source_lang: str = "auto") -> dict:
         try:
@@ -21,7 +24,7 @@ class GeminiProvider(BaseProvider):
                     system_instruction=self._build_system_prompt(target_lang, source_lang),
                     temperature=0.1,
                     top_p=0.95,
-                    max_output_tokens=4096,
+                    max_output_tokens=DEFAULT_MAX_TOKENS,
                 ),
             )
             return self.parse_response(response.text.strip())

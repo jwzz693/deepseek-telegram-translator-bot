@@ -1,4 +1,4 @@
-"""Telegram 消息处理器 — 全功能优化版"""
+"""Telegram 消息处理器 — 全功能升级版 v2.1"""
 
 import re
 import logging
@@ -10,13 +10,14 @@ from telegram.ext import ContextTypes
 from telegram.constants import ChatAction
 from telegram.error import BadRequest, Forbidden, TimedOut, NetworkError, RetryAfter
 
-from src.config import Config
+from src.config import Config, VERSION, uptime_str
 from src.store import (
     get_chat_config, set_chat_config, record_translation,
     get_stats, get_global_stats, reset_chat_config, clear_chat_stats,
+    export_all_stats,
 )
-from src.translator import translate_text, get_provider, _provider_cache
-from src.providers import PROVIDER_MODELS
+from src.translator import translate_text, get_provider, get_engine_avg_latency, _provider_cache
+from src.providers import PROVIDER_MODELS, PROVIDER_DISPLAY
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +43,12 @@ QUICK_LANGS = [
     ("🇮🇳 हिन्दी", "हिन्दी"),
 ]
 
-RATE_LIMIT_PER_MIN = 30
+RATE_LIMIT_PER_MIN = Config.RATE_LIMIT_PER_MIN
 _rate_limiter: dict[int, list[float]] = defaultdict(list)
 
 _translate_cache: dict[str, dict] = {}
 CACHE_MAX_SIZE = 500
+_CACHE_TTL = 600  # 缓存 10 分钟过期
 
 
 # ═══════════════════════════════════════════
@@ -97,15 +99,22 @@ def _cache_key(text: str, target_lang: str, provider: str) -> str:
 
 
 def _get_cached(text: str, target_lang: str, provider: str) -> dict | None:
-    return _translate_cache.get(_cache_key(text, target_lang, provider))
+    key = _cache_key(text, target_lang, provider)
+    entry = _translate_cache.get(key)
+    if entry and (time.time() - entry.get("_ts", 0)) < _CACHE_TTL:
+        return entry
+    if entry:
+        del _translate_cache[key]  # 过期删除
+    return None
 
 
 def _set_cache(text: str, target_lang: str, provider: str, result: dict):
     if len(_translate_cache) >= CACHE_MAX_SIZE:
-        keys = list(_translate_cache.keys())
-        for k in keys[:CACHE_MAX_SIZE // 2]:
+        # 清除最旧的一半
+        sorted_keys = sorted(_translate_cache, key=lambda k: _translate_cache[k].get("_ts", 0))
+        for k in sorted_keys[:CACHE_MAX_SIZE // 2]:
             del _translate_cache[k]
-    _translate_cache[_cache_key(text, target_lang, provider)] = result
+    _translate_cache[_cache_key(text, target_lang, provider)] = {**result, "_ts": time.time()}
 
 
 async def _safe_reply(message, text: str, **kwargs):
@@ -143,7 +152,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     auto = cfg.get("auto_translate", update.effective_chat.type == "private")
     await _safe_reply(
         update.message,
-        "🌐 *AI 全自动翻译机器人*\n\n"
+        f"🌐 *AI 全自动翻译机器人* v{VERSION}\n\n"
         "加入群组自动翻译，私聊直接发文本翻译。\n\n"
         f"🤖 引擎: `{cfg.get('provider', Config.DEFAULT_PROVIDER)}`\n"
         f"🌍 语言: *{cfg.get('target_lang', Config.DEFAULT_TARGET_LANG)}*\n"
@@ -183,6 +192,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*🛠 工具:*\n"
         "/id — 查看 ID\n"
         "/ping — 测试延迟\n\n"
+        "*🔐 授权管理:*\n"
+        "/authorize `ID` — 授权用户\n"
+        "/unauthorize `ID` — 取消授权\n"
+        "/authorized — 查看授权列表\n"
+        "  ↳ 回复消息也可授权/取消\n\n"
         "*💡 技巧:*\n"
         "• 私聊默认自动翻译\n"
         "• 群组需 /auto\\_on 开启\n"
@@ -230,14 +244,16 @@ def _build_settings_panel(chat_id: int, chat_type: str = "private") -> tuple[str
     model = cfg.get("model", PROVIDER_MODELS.get(provider, "默认"))
     auto = cfg.get("auto_translate", chat_type == "private")
     stats = get_stats(chat_id)
+    display_name = PROVIDER_DISPLAY.get(provider, provider)
 
     text = (
-        "⚙️ *设置面板*\n\n"
-        f"🤖 引擎: `{provider}`\n"
+        f"⚙️ *设置面板* · v{VERSION}\n\n"
+        f"🤖 引擎: {display_name}\n"
         f"🧠 模型: `{model}`\n"
         f"🌍 语言: *{target}*\n"
         f"🔄 自动翻译: {'🟢 开启' if auto else '🔴 关闭'}\n\n"
-        f"📊 已翻译: {stats['total']} 次 | {stats['chars']:,} 字符"
+        f"📊 已翻译: {stats['total']} 次 | {stats['chars']:,} 字符\n"
+        f"⏱ 运行: {uptime_str()}"
     )
 
     auto_btn_text = "🔴 关闭自动翻译" if auto else "🟢 开启自动翻译"
@@ -324,9 +340,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current = get_chat_config(chat_id).get("provider", Config.DEFAULT_PROVIDER)
             buttons = []
             for p in available:
-                icon = "👉" if p == current else "🤖"
+                icon = "👉" if p == current else PROVIDER_DISPLAY.get(p, "🤖")[:2]
+                label = PROVIDER_DISPLAY.get(p, p)
+                latency = get_engine_avg_latency(p)
+                lat_str = f" · {latency:.1f}s" if latency else ""
                 buttons.append([InlineKeyboardButton(
-                    f"{icon} {p} — {PROVIDER_MODELS.get(p, '')}",
+                    f"{icon} {label} — {PROVIDER_MODELS.get(p, '')}{lat_str}",
                     callback_data=f"provider:{p}",
                 )])
             buttons.append([InlineKeyboardButton("⬅️ 返回设置", callback_data="settings:back")])
@@ -369,13 +388,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             provider = cfg.get("provider", Config.DEFAULT_PROVIDER)
             rate = f"{stats['success']/stats['total']*100:.1f}%" if stats["total"] > 0 else "N/A"
             top = max(stats["providers"], key=stats["providers"].get) if stats.get("providers") else "N/A"
+            latency = get_engine_avg_latency(provider)
+            lat_str = f"{latency:.1f}s" if latency else "N/A"
             status_text = (
-                "📊 *详细统计*\n\n"
+                f"📊 *详细统计* · v{VERSION}\n\n"
                 f"📈 翻译: {stats['total']} 次 | 字符: {stats['chars']:,}\n"
                 f"✅ 成功: {stats['success']} | ❌ 失败: {stats['fail']}\n"
-                f"📊 成功率: {rate} | 常用引擎: {top}\n\n"
+                f"📊 成功率: {rate} | 常用引擎: {top}\n"
+                f"⏱ 引擎延迟: {lat_str}\n\n"
                 f"🌐 全局: {g['total_translations']:,} 次 | {g['total_chars']:,} 字\n"
-                f"💬 聊天数: {g['total_chats']} | 缓存: {len(_translate_cache)}"
+                f"💬 聊天数: {g['total_chats']} | 全局成功率: {g.get('success_rate', 'N/A')}\n"
+                f"📦 缓存: {len(_translate_cache)} | ⏱ 运行: {uptime_str()}"
             )
             await query.answer()
             await query.edit_message_text(
@@ -436,9 +459,10 @@ async def cmd_set_provider(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current = get_chat_config(update.effective_chat.id).get("provider", Config.DEFAULT_PROVIDER)
         buttons = []
         for p in available:
-            icon = "👉" if p == current else "🤖"
+            icon = "👉" if p == current else PROVIDER_DISPLAY.get(p, "🤖")[:2]
+            label = PROVIDER_DISPLAY.get(p, p)
             buttons.append([InlineKeyboardButton(
-                f"{icon} {p} — {PROVIDER_MODELS.get(p, '')}", callback_data=f"provider:{p}",
+                f"{icon} {label} — {PROVIDER_MODELS.get(p, '')}", callback_data=f"provider:{p}",
             )])
         await _safe_reply(
             update.message,
@@ -532,12 +556,13 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     top = max(stats["providers"], key=stats["providers"].get) if stats.get("providers") else "N/A"
 
     await _safe_reply(update.message,
-        "📊 *设置与统计*\n\n"
+        f"📊 *设置与统计* · v{VERSION}\n\n"
         f"🤖 `{provider}` | 🧠 `{model}`\n"
         f"🌍 *{cfg.get('target_lang', Config.DEFAULT_TARGET_LANG)}* | {'🟢' if auto else '🔴'} {'开启' if auto else '关闭'}\n\n"
         f"📈 翻译: {stats['total']} 次 | 字符: {stats['chars']:,}\n"
         f"✅ {stats['success']} | ❌ {stats['fail']} | 率: {rate} | 常用: {top}\n\n"
-        f"🌐 全局: {g['total_translations']:,} 次 | {g['total_chars']:,} 字 | {g['total_chats']} 聊天 | 缓存: {len(_translate_cache)}",
+        f"🌐 全局: {g['total_translations']:,} 次 | {g['total_chars']:,} 字 | {g['total_chats']} 聊天\n"
+        f"📦 缓存: {len(_translate_cache)} | 授权: {len(Config.ADMIN_USER_IDS)} | ⏱ {uptime_str()}",
         parse_mode="Markdown")
 
 
@@ -577,12 +602,15 @@ async def cmd_providers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["🤖 *AI 翻译引擎*\n"]
     for p in ["deepseek", "openai", "claude", "gemini", "groq", "mistral"]:
         m = PROVIDER_MODELS.get(p, "")
+        display = PROVIDER_DISPLAY.get(p, p)
+        latency = get_engine_avg_latency(p)
+        lat_str = f" · {latency:.1f}s" if latency else ""
         if p == current:
-            lines.append(f"  👉 `{p}` — {m} *(当前)*")
+            lines.append(f"  👉 {display} — `{m}`{lat_str} *(当前)*")
         elif p in available:
-            lines.append(f"  ✅ `{p}` — {m}")
+            lines.append(f"  ✅ {display} — `{m}`{lat_str}")
         else:
-            lines.append(f"  ⬜ `{p}` — {m} _(未配置)_")
+            lines.append(f"  ⬜ {display} — `{m}` _(未配置)_")
     lines.append("\n💡 /set\\_provider 切换")
     await _safe_reply(update.message, "\n".join(lines), parse_mode="Markdown")
 
@@ -634,6 +662,143 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ═══════════════════════════════════════════
+#  /authorize — 授权用户（仅主管理员）
+# ═══════════════════════════════════════════
+
+async def cmd_authorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """授权用户使用机器人（仅主管理员，支持批量）"""
+    user_id = update.effective_user.id
+    if user_id != Config.PRIMARY_ADMIN:
+        await _safe_reply(update.message, "🔒 仅主管理员可操作")
+        return
+
+    # 支持回复消息或参数方式（支持多个 ID）
+    reply_msg = update.message.reply_to_message
+
+    if context.args:
+        # 支持：/authorize 123 456 789
+        target_ids = []
+        invalid = []
+        for raw in context.args:
+            raw = raw.strip().rstrip(",")
+            if raw.isdigit():
+                target_ids.append(int(raw))
+            else:
+                invalid.append(raw)
+
+        if invalid:
+            await _safe_reply(update.message,
+                f"❌ 无效 ID: {', '.join(invalid)}\n用法: /authorize `ID1 ID2 ID3`",
+                parse_mode="Markdown")
+            return
+
+        if not target_ids:
+            await _safe_reply(update.message, "❌ 请提供至少一个用户 ID")
+            return
+
+        # 批量添加
+        added = Config.add_admins(target_ids)
+        already = [uid for uid in target_ids if uid not in added]
+
+        lines = []
+        if added:
+            lines.append(f"✅ 已授权 {len(added)} 人: " + ", ".join(f"`{uid}`" for uid in added))
+        if already:
+            lines.append(f"ℹ️ 已在列表中: " + ", ".join(f"`{uid}`" for uid in already))
+        lines.append(f"\n👥 当前授权: {len(Config.ADMIN_USER_IDS)} 人")
+        await _safe_reply(update.message, "\n".join(lines), parse_mode="Markdown")
+        logger.info("管理员 %d 批量授权: %s", user_id, target_ids)
+        return
+
+    elif reply_msg and reply_msg.from_user:
+        target_id = reply_msg.from_user.id
+    else:
+        await _safe_reply(
+            update.message,
+            "📋 *授权用户*\n\n"
+            "用法:\n"
+            "• /authorize `ID1 ID2 ID3` *(支持批量)*\n"
+            "• 回复用户消息 \\+ /authorize\n\n"
+            "💡 用户可发 /id 给机器人获取 ID",
+            parse_mode="Markdown",
+        )
+        return
+
+    if Config.add_admin(target_id):
+        await _safe_reply(update.message, f"✅ 已授权用户 `{target_id}`\n👥 当前授权: {len(Config.ADMIN_USER_IDS)} 人", parse_mode="Markdown")
+        logger.info("管理员 %d 授权了用户 %d", user_id, target_id)
+    else:
+        await _safe_reply(update.message, f"ℹ️ 用户 `{target_id}` 已在授权列表中", parse_mode="Markdown")
+
+
+# ═══════════════════════════════════════════
+#  /unauthorize — 取消授权（仅主管理员）
+# ═══════════════════════════════════════════
+
+async def cmd_unauthorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """取消用户授权（仅主管理员，不可移除自己）"""
+    user_id = update.effective_user.id
+    if user_id != Config.PRIMARY_ADMIN:
+        await _safe_reply(update.message, "🔒 仅主管理员可操作")
+        return
+
+    target_id = None
+    reply_msg = update.message.reply_to_message
+
+    if context.args:
+        raw = context.args[0].strip()
+        if raw.isdigit():
+            target_id = int(raw)
+        else:
+            await _safe_reply(update.message, "❌ 无效 ID，请输入数字\n用法: /unauthorize `用户ID`", parse_mode="Markdown")
+            return
+    elif reply_msg and reply_msg.from_user:
+        target_id = reply_msg.from_user.id
+    else:
+        await _safe_reply(
+            update.message,
+            "📋 *取消授权*\n\n"
+            "用法:\n"
+            "• /unauthorize `用户ID`\n"
+            "• 回复用户消息 \\+ /unauthorize",
+            parse_mode="Markdown",
+        )
+        return
+
+    if target_id == Config.PRIMARY_ADMIN:
+        await _safe_reply(update.message, "❌ 不能移除主管理员")
+        return
+
+    if Config.remove_admin(target_id):
+        await _safe_reply(update.message, f"✅ 已取消用户 `{target_id}` 的授权\n👥 当前授权: {len(Config.ADMIN_USER_IDS)} 人", parse_mode="Markdown")
+        logger.info("管理员 %d 取消了用户 %d 的授权", user_id, target_id)
+    else:
+        await _safe_reply(update.message, f"ℹ️ 用户 `{target_id}` 不在授权列表中", parse_mode="Markdown")
+
+
+# ═══════════════════════════════════════════
+#  /authorized — 查看授权列表（仅主管理员）
+# ═══════════════════════════════════════════
+
+async def cmd_authorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """查看已授权用户列表"""
+    user_id = update.effective_user.id
+    if user_id != Config.PRIMARY_ADMIN:
+        await _safe_reply(update.message, "🔒 仅主管理员可操作")
+        return
+
+    admins = Config.ADMIN_USER_IDS
+    lines = [f"👑 *已授权用户 ({len(admins)})*\n"]
+    for i, uid in enumerate(admins):
+        if uid == Config.PRIMARY_ADMIN:
+            lines.append(f"  {i+1}\\. `{uid}` 👑 主管理员")
+        else:
+            lines.append(f"  {i+1}\\. `{uid}`")
+    lines.append("\n💡 /authorize `ID` 添加\n💡 /unauthorize `ID` 移除")
+    await _safe_reply(update.message, "\n".join(lines), parse_mode="Markdown")
+
+
+# ═══════════════════════════════════════════
 #  /ping
 # ═══════════════════════════════════════════
 
@@ -657,7 +822,7 @@ async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if msg:
         try:
             await msg.edit_text(
-                f"🏓 *Pong!*\n\n📡 Bot: `{bot_ms:.0f}ms`\n🤖 {_escape_md(ai_txt)}",
+                f"🏓 *Pong\\!* v{VERSION}\n\n📡 Bot: `{bot_ms:.0f}ms`\n🤖 {_escape_md(ai_txt)}\n⏱ 运行: {uptime_str()}",
                 parse_mode="Markdown")
         except Exception:
             pass
@@ -684,10 +849,9 @@ async def _do_translate(update: Update, context: ContextTypes.DEFAULT_TYPE, text
         except Exception:
             pass
 
-        t0 = time.time()
         try:
             r = await translate_text(text, target_lang=target_lang, provider_name=provider_name)
-            elapsed = time.time() - t0
+            elapsed = r.get("latency", 0.0)
             translation, detected, target, engine = r["translation"], r["detected_lang"], r["target_lang"], r["engine"]
             cache_hit = False
             _set_cache(text, target_lang, provider_name, r)
@@ -699,8 +863,9 @@ async def _do_translate(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 
     record_translation(chat_id, engine, len(text), success=True)
 
-    fallback = f"\n⚠️ _降级到 {engine}_" if provider_name and engine != provider_name else ""
-    speed = "⚡ 缓存" if cache_hit else f"⚡ `{engine}` · {elapsed:.1f}s"
+    display_engine = PROVIDER_DISPLAY.get(engine, engine)
+    fallback = f"\n⚠️ _降级到 {display_engine}_" if provider_name and engine != provider_name else ""
+    speed = "⚡ 缓存" if cache_hit else f"⚡ {display_engine} · {elapsed:.1f}s"
 
     reply = (
         f"🔤 *{_escape_md(detected)}* → *{_escape_md(target)}*\n\n"
@@ -774,20 +939,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     error = context.error
     if isinstance(error, Forbidden):
-        logger.warning(f"Bot 被封禁: {error}")
+        logger.warning("Bot 被封禁: %s", error)
         return
     if isinstance(error, RetryAfter):
-        logger.warning(f"限速 {error.retry_after}s: {error}")
+        logger.warning("限速 %ds: %s", error.retry_after, error)
         return
     if isinstance(error, (TimedOut, NetworkError)):
-        logger.warning(f"网络异常: {error}")
+        logger.warning("网络异常: %s", error)
         return
     if isinstance(error, BadRequest):
         if "message is not modified" in str(error).lower():
             return
-        logger.warning(f"请求异常: {error}")
+        logger.warning("请求异常: %s", error)
         return
-    logger.error(f"未处理异常: {error}", exc_info=context.error)
+    logger.error("未处理异常: %s", error, exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
         try:
             await update.effective_message.reply_text(f"❌ 内部错误: {str(error)[:200]}")
@@ -817,6 +982,9 @@ async def setup_commands(app):
         BotCommand("clear_stats", "🗑 清除统计"),
         BotCommand("id", "🆔 查看ID"),
         BotCommand("ping", "🏓 延迟"),
+        BotCommand("authorize", "🔐 授权用户"),
+        BotCommand("unauthorize", "🔐 取消授权"),
+        BotCommand("authorized", "📋 授权列表"),
     ]
     await app.bot.set_my_commands(commands)
     logger.info("命令菜单已注册 (%d 个)", len(commands))

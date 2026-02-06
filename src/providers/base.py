@@ -4,16 +4,25 @@ import json
 import re
 from abc import ABC, abstractmethod
 
+# 默认 API 超时（秒）
+DEFAULT_API_TIMEOUT = 30
+DEFAULT_MAX_TOKENS = 4096
+
 
 class BaseProvider(ABC):
     """所有 AI 翻译提供商的基类"""
 
     name: str = "base"
+    model: str = ""
 
     @abstractmethod
     async def translate(self, text: str, target_lang: str, source_lang: str = "auto") -> dict:
         """翻译文本，返回 {"detected_lang": "...", "translation": "..."}"""
         ...
+
+    def info(self) -> dict:
+        """返回提供商信息"""
+        return {"name": self.name, "model": self.model}
 
     def _build_system_prompt(self, target_lang: str, source_lang: str) -> str:
         """构建高精度翻译系统提示词"""
